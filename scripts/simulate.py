@@ -280,21 +280,13 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("traces", nargs="*", help="Specific traces, e.g. C1 C9. Default: all.")
     ap.add_argument("--url", default="http://127.0.0.1:8000", help="Base URL of the /chat service.")
-    ap.add_argument("--delay", type=float, default=3.0, help="Seconds between LLM calls (rate-limit pacing).")
+    ap.add_argument("--delay", type=float, default=1.5, help="Seconds between LLM calls (rate-limit pacing).")
     ap.add_argument("--no-probes", action="store_true", help="Skip the behavior probes.")
     args = ap.parse_args()
 
     settings = get_settings()
     catalog = load_catalog(settings)
     catalog_urls = {_norm_url(a.url) for a in catalog.assessments}
-    # The simulated user runs on the LOCAL key. When testing a deployed Space that
-    # uses the SAME Groq key, set SIM_GROQ_API_KEY to a *different* key so the test
-    # harness and the Space don't share (and double up on) one key's rate limit.
-    import os
-    sim_key = os.environ.get("SIM_GROQ_API_KEY")
-    if sim_key:
-        settings.groq_api_key = sim_key
-        print("Using SIM_GROQ_API_KEY for the simulated user (separate from the Space key).")
     llm = LLMClient(settings)
 
     # Confirm the service is reachable + healthy first.

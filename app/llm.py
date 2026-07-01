@@ -30,14 +30,6 @@ class LLMUnavailable(RuntimeError):
     """Raised when no configured provider could produce a response."""
 
 
-class RateLimited(RuntimeError):
-    """A provider returned HTTP 429. Carries the server's Retry-After (seconds)."""
-
-    def __init__(self, message: str, retry_after: float | None = None):
-        super().__init__(message)
-        self.retry_after = retry_after
-
-
 def extract_json(text: str) -> dict | None:
     """Best-effort extraction of the first JSON object from an LLM response."""
     if not text:
@@ -143,12 +135,7 @@ class LLMClient:
         raise LLMUnavailable("; ".join(errors) or "no LLM provider configured")
 
     def _with_retry(self, call, attempts: int = 2, backoff: float = 2.0):
-        """Retry a provider call on transient (rate-limit/5xx) errors.
-
-        On HTTP 429 we honor the server's Retry-After header when present, so a
-        brief per-minute overshoot self-heals instead of dropping to fallback.
-        The wait is capped so a retry still fits inside the request budget.
-        """
+        """Retry a provider call once on transient (rate-limit/5xx) errors."""
         last: Exception | None = None
         for i in range(attempts):
             try:
@@ -156,10 +143,7 @@ class LLMClient:
             except Exception as exc:
                 last = exc
                 if i < attempts - 1 and _is_transient(exc):
-                    wait = getattr(exc, "retry_after", None)
-                    if not wait or wait <= 0:
-                        wait = backoff * (i + 1)
-                    time.sleep(min(wait, 8.0))
+                    time.sleep(backoff)
                     continue
                 raise
         raise last  # pragma: no cover
@@ -210,13 +194,6 @@ class LLMClient:
             json=payload,
             timeout=timeout,
         )
-        if resp.status_code == 429:
-            ra = resp.headers.get("retry-after") or resp.headers.get("Retry-After")
-            try:
-                wait = float(ra) if ra is not None else None
-            except (TypeError, ValueError):
-                wait = None
-            raise RateLimited(f"429 rate limited (retry-after={ra})", retry_after=wait)
         resp.raise_for_status()
         data = resp.json()
         return (data["choices"][0]["message"]["content"] or "").strip()
