@@ -1,0 +1,16 @@
+# Render.com blueprint. Note: the free instance has ~512 MB RAM, which is tight
+# for sentence-transformers. Either use a paid instance, or set
+# RETRIEVAL_MODE=lexical to run BM25-only within the free memory budget.
+services:
+  - type: web
+    name: shl-recommender
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: RETRIEVAL_MODE
+        value: lexical
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false

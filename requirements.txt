@@ -1,0 +1,23 @@
+# --- Core web service ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.1
+python-dotenv==1.0.1
+
+# --- Retrieval ---
+rank-bm25==0.2.2
+numpy==2.2.1
+
+# --- LLM providers (Gemini primary; Groq/OpenAI via HTTP) ---
+google-generativeai==0.8.3
+requests==2.32.3
+
+# --- Semantic embeddings (optional but recommended). ---
+# If the environment cannot load these (e.g. very low RAM), the retriever
+# transparently falls back to BM25-only. See app/retrieval.py.
+sentence-transformers==3.3.1
+
+# --- Testing ---
+pytest==8.3.4
+httpx==0.28.1
