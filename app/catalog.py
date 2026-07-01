@@ -73,7 +73,7 @@ class Assessment:
             "languages": self._languages_display(),
             "remote": self.remote or "-",
             "adaptive": self.adaptive or "-",
-            "description": _truncate(self.description, 320),
+            "description": _truncate(self.description, 200),
             "url": self.url,
         }
 

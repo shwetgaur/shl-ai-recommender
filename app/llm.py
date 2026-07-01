@@ -9,12 +9,21 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 
 import requests
 
 from .config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
+
+_TRANSIENT_MARKERS = ("429", "rate limit", "rate_limit", "resource_exhausted",
+                      "503", "overloaded", "temporarily", "timeout", "unavailable")
+
+
+def _is_transient(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return any(m in msg for m in _TRANSIENT_MARKERS)
 
 
 class LLMUnavailable(RuntimeError):
@@ -94,10 +103,12 @@ class LLMClient:
     ) -> str:
         errors: list[str] = []
         for provider in self.settings.providers:
-            try:
-                if provider == "gemini" and self.settings.gemini_api_key:
+            call = None
+            if provider == "gemini" and self.settings.gemini_api_key:
+                def call():
                     return self._gemini(system, user, temperature, max_tokens, timeout)
-                if provider == "groq" and self.settings.groq_api_key:
+            elif provider == "groq" and self.settings.groq_api_key:
+                def call():
                     return self._openai_compatible(
                         base_url="https://api.groq.com/openai/v1",
                         api_key=self.settings.groq_api_key,
@@ -105,7 +116,8 @@ class LLMClient:
                         system=system, user=user,
                         temperature=temperature, max_tokens=max_tokens, timeout=timeout,
                     )
-                if provider == "openai" and self.settings.openai_api_key:
+            elif provider == "openai" and self.settings.openai_api_key:
+                def call():
                     return self._openai_compatible(
                         base_url=self.settings.openai_base_url,
                         api_key=self.settings.openai_api_key,
@@ -113,10 +125,28 @@ class LLMClient:
                         system=system, user=user,
                         temperature=temperature, max_tokens=max_tokens, timeout=timeout,
                     )
+            if call is None:
+                continue
+            try:
+                return self._with_retry(call)
             except Exception as exc:  # try the next provider
                 logger.warning("Provider %s failed: %s", provider, exc)
                 errors.append(f"{provider}: {exc}")
         raise LLMUnavailable("; ".join(errors) or "no LLM provider configured")
+
+    def _with_retry(self, call, attempts: int = 2, backoff: float = 2.0):
+        """Retry a provider call once on transient (rate-limit/5xx) errors."""
+        last: Exception | None = None
+        for i in range(attempts):
+            try:
+                return call()
+            except Exception as exc:
+                last = exc
+                if i < attempts - 1 and _is_transient(exc):
+                    time.sleep(backoff)
+                    continue
+                raise
+        raise last  # pragma: no cover
 
     def generate_json(self, system: str, user: str, **kwargs) -> dict:
         text = self.generate(system, user, **kwargs)

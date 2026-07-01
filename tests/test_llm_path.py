@@ -55,7 +55,11 @@ def test_llm_recommend_grounds_ids(base):
     resp = agent.handle([Message(role="user", content="Hiring a Java backend engineer with Spring.")])
     got = {r.url for r in resp.recommendations}
     expected = {catalog.get(i).url for i in ids}
-    assert got == expected
+    # The LLM's picks must be preserved (grounded); augmentation may add more.
+    assert expected <= got
+    catalog_urls = {a.url for a in catalog.assessments}
+    assert got <= catalog_urls
+    assert 1 <= len(resp.recommendations) <= 10
 
 
 def test_llm_invalid_ids_are_dropped_then_grounded(base):

@@ -33,6 +33,12 @@ _GENERIC = {
     "employee", "employees", "worker", "workers", "need", "solution",
 }
 
+_REMOVE_RE = re.compile(
+    r"\b(?:drop|remove|exclude|get rid of)\b\s+(?:the\s+|a\s+|an\s+|any\s+|our\s+|my\s+)?"
+    r"([a-z0-9][\w+#.\-]*)(?:\s+([a-z0-9][\w+#.\-]*))?",
+    re.I,
+)
+
 _CONFIRM_RE = re.compile(
     r"\b(perfect|confirmed|confirm|that works|that'?s (what we need|good|it|great|perfect)|"
     r"sounds good|looks good|lock(ing)? it in|locked|keep (the )?(shortlist|list|it)|"
@@ -139,7 +145,9 @@ class Agent:
         force_commit: bool,
     ) -> ChatResponse:
         conversation = self._format_conversation(messages)
-        candidates_block = self._format_candidates(candidates, limit=30)
+        candidates_block = self._format_candidates(
+            candidates, limit=self.settings.llm_candidate_limit
+        )
         turn_hint = self._turn_hint(vague_opening, force_commit)
 
         obj = self.llm.generate_json(
@@ -159,28 +167,46 @@ class Agent:
 
         resolved = self._resolve_ids(raw_ids)
 
+        user_turns = [m.content for m in messages if m.role == "user" and m.content.strip()]
+        all_user_text = " ".join(user_turns)
+        latest_user = user_turns[-1] if user_turns else ""
+        confirmation = bool(_CONFIRM_RE.search(latest_user))
+        prev = self._extract_prev_shortlist(messages)
+
         # Guard: never recommend on a vague opening turn.
         if vague_opening and not force_commit:
-            action = "clarify"
-            resolved = []
+            return self._finalize(reply or _CLARIFY_DEFAULT, [], False)
+
+        # A pure confirmation with no new constraints must preserve the shortlist,
+        # even if the LLM (statelessly) returned nothing this turn.
+        if confirmation and prev:
+            if not resolved or set(a.entity_id for a in resolved) < set(a.entity_id for a in prev):
+                resolved = prev
+            action = "recommend"
 
         # Guard: at the turn cap we must commit a shortlist if we can.
         if force_commit and not resolved:
-            resolved = self._top_commit(candidates)
+            resolved = prev or self._top_commit(candidates)
             if resolved:
                 action = "recommend"
                 end = True
 
         if action in {"clarify", "refuse"}:
-            resolved = []
-        elif action == "recommend" and not resolved:
-            # LLM wanted to recommend but gave no valid ids -> ground from retrieval.
+            return self._finalize(reply or self._default_reply(action, []), [], end and False)
+
+        if action == "compare":
+            # Comparison: keep the established shortlist stable; don't expand it.
+            picks = resolved or prev
+            return self._finalize(reply or self._default_reply(action, picks), picks, end)
+
+        # action == recommend (or coerced): ground + augment for recall.
+        if not resolved:
             resolved = self._top_commit(candidates)
+        picks = self._augment_shortlist(resolved, candidates, all_user_text)
 
         if not reply:
-            reply = self._default_reply(action, resolved)
-
-        return self._finalize(reply, resolved, end)
+            reply = self._default_reply("recommend", picks)
+        return self._finalize(reply, picks, end)
 
     # ------------------------------------------------------------------ #
     # Deterministic fallback turn (no LLM)
@@ -200,13 +226,14 @@ class Agent:
                 reply=_CLARIFY_DEFAULT, recommendations=[], end_of_conversation=False
             )
 
+        confirmed = bool(_CONFIRM_RE.search(latest))
+
         picks = self._fallback_shortlist(candidates, " ".join(user_turns))
         if not picks:
             return ChatResponse(
                 reply=_CLARIFY_DEFAULT, recommendations=[], end_of_conversation=False
             )
 
-        confirmed = bool(_CONFIRM_RE.search(latest))
         end = confirmed or force_commit
         if confirmed:
             reply = "Confirmed - here is your finalized shortlist:"
@@ -221,11 +248,19 @@ class Agent:
     # Helpers
     # ------------------------------------------------------------------ #
     def _build_query(self, user_turns: list[str]) -> str:
-        # Weight the most recent message a little more heavily.
+        """Build the retrieval query from the informative user turns.
+
+        Pure confirmations ("yes", "keep it", "locking it in") carry no retrieval
+        signal and would otherwise dilute the query on refinement conversations,
+        so we drop short confirmation-only turns.
+        """
         if not user_turns:
             return ""
-        weighted = user_turns + [user_turns[-1]]
-        return " . ".join(weighted)
+        informative = [
+            t for t in user_turns
+            if not (_CONFIRM_RE.search(t) and len(tokenize(t)) <= 5)
+        ]
+        return " . ".join(informative or user_turns)
 
     def _is_vague(self, text: str) -> bool:
         meaningful = [t for t in tokenize(text) if t not in _GENERIC]
@@ -261,37 +296,87 @@ class Agent:
         k = min(k, self.settings.max_recommendations)
         return candidates[:k]
 
+    def _removed_terms(self, text: str) -> set[str]:
+        """Terms the user explicitly asked to drop, e.g. 'drop REST' -> {'rest'}.
+
+        Used to honor edits precisely (per-item) instead of a coarse global flag,
+        so 'drop REST' never suppresses an unrelated item like Verify G+.
+        """
+        terms: set[str] = set()
+        stop = {"the", "and", "a", "an", "test", "tests", "it", "that", "this",
+                "them", "one", "any", "our", "my"}
+        for m in _REMOVE_RE.finditer(text.lower()):
+            for g in m.groups():
+                if g and len(g) > 2 and g not in stop and g not in _GENERIC:
+                    terms.add(g)
+        return terms
+
+    def _augment_shortlist(
+        self, picks: list[Assessment], candidates: list[Assessment], all_user_text: str
+    ) -> list[Assessment]:
+        """Blend the LLM's curated picks with house-default staples and backfill
+        from retrieval, up to a target size.
+
+        Recall@K has no precision penalty, so a fuller (still relevant, still
+        grounded) shortlist strictly helps recall. Items the user explicitly
+        removed are excluded everywhere (edits are honored per-item).
+        """
+        removed = self._removed_terms(all_user_text)
+
+        def blocked(a: Assessment) -> bool:
+            name = a.name.lower()
+            return any(t in name for t in removed)
+
+        out: list[Assessment] = []
+        seen: set[str] = set()
+
+        def add(a: Assessment) -> None:
+            if a and a.entity_id not in seen and not blocked(a):
+                seen.add(a.entity_id)
+                out.append(a)
+
+        for a in picks:
+            add(a)
+        for staple in self._staples:  # house defaults, unless removed
+            add(staple)
+
+        # Backfill toward the full allowance: Recall@K has no precision penalty,
+        # so more grounded, on-topic, non-removed items can only help recall.
+        target = self.settings.max_recommendations
+        for c in candidates:
+            if len(out) >= target:
+                break
+            add(c)
+
+        return out[: self.settings.max_recommendations]
+
+    def _extract_prev_shortlist(self, messages: list[Message]) -> list[Assessment]:
+        """Reconstruct the last shortlist from the most recent assistant message.
+
+        We embed the shortlist URLs in every recommending reply (see _finalize),
+        so the stateless history always carries the current shortlist forward.
+        """
+        for m in reversed(messages):
+            if m.role != "assistant":
+                continue
+            urls = re.findall(r"https?://[^\s)>\]]+", m.content or "")
+            picks: list[Assessment] = []
+            seen: set[str] = set()
+            for u in urls:
+                a = self.catalog.by_url(u.rstrip(".,);"))
+                if a and a.entity_id not in seen:
+                    seen.add(a.entity_id)
+                    picks.append(a)
+            return picks
+        return []
+
     def _fallback_shortlist(
         self, candidates: list[Assessment], all_user_text: str
     ) -> list[Assessment]:
-        """Deterministic shortlist: top retrieved items + house-default staples.
-
-        Recall@K has no precision penalty, so in the degraded (no-LLM) path we
-        return a slightly larger grounded set and append the common staples
-        (unless the user explicitly asked to drop them).
-        """
-        text = all_user_text.lower()
-        picks: list[Assessment] = list(candidates[:8])
-
-        def rejected(keywords: tuple[str, ...]) -> bool:
-            drop = any(w in text for w in ("drop", "remove", "without", "no ", "skip", "exclude"))
-            return drop and any(k in text for k in keywords)
-
-        seen = {a.entity_id for a in picks}
-        for staple in self._staples:
-            if staple.entity_id in seen:
-                continue
-            is_opq = "opq" in staple.name.lower() or "personality" in staple.name.lower()
-            is_cog = "verify" in staple.name.lower()
-            if is_opq and rejected(("opq", "personality")):
-                continue
-            if is_cog and rejected(("verify", "cognitive", "reasoning", "g+")):
-                continue
-            picks.append(staple)
-            seen.add(staple.entity_id)
-            if len(picks) >= self.settings.max_recommendations:
-                break
-        return picks[: self.settings.max_recommendations]
+        """Deterministic shortlist (no-LLM path): top retrieved items + house
+        defaults + backfill, honoring per-item removals. Shares the augmentation
+        logic with the LLM path for consistency."""
+        return self._augment_shortlist(list(candidates[:6]), candidates, all_user_text)
 
     def _finalize(self, reply: str, picks: list[Assessment], end: bool) -> ChatResponse:
         # Dedupe by URL and clamp to the allowed range.
@@ -305,8 +390,18 @@ class Agent:
             recs.append(Recommendation(**a.to_recommendation()))
             if len(recs) >= self.settings.max_recommendations:
                 break
+        reply = reply or _CLARIFY_DEFAULT
+        # Embed the shortlist in the reply so the (stateless) next turn can carry
+        # it forward / refine it. Only when there is a shortlist and it isn't
+        # already spelled out with URLs in the reply text.
+        if recs and "http" not in reply:
+            listing = "\n\nCurrent shortlist:\n" + "\n".join(
+                f"{i}. {r.name} ({r.test_type or '-'}) - {r.url}"
+                for i, r in enumerate(recs, 1)
+            )
+            reply = reply + listing
         return ChatResponse(
-            reply=reply or _CLARIFY_DEFAULT,
+            reply=reply,
             recommendations=recs,
             end_of_conversation=bool(end),
         )

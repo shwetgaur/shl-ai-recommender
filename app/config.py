@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     hybrid_semantic_weight: float = 0.55
     retrieval_top_k: int = 40
+    # How many retrieved candidates are shown to the LLM per turn. Lower = fewer
+    # tokens (useful on token-per-minute limited free tiers).
+    llm_candidate_limit: int = 24
 
     # Agent behavior
     max_turns: int = 8

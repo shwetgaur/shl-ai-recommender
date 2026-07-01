@@ -65,20 +65,27 @@ shortlist from each trace's last table, replays the user turns through the agent
 and computes Recall@10, plus seven behavior probes. Measured results:
 
 - **Behavior probes: 7/7 pass** in every mode (incl. no-LLM).
-- **Recall@10 (no-LLM deterministic floor): 0.37 lexical-only → 0.61 hybrid**
-  after the improvements below. This is the *worst case*; the LLM policy path
-  (with reasoning over refinements, comparisons, and defaults) is designed to
-  exceed it, and the retrieval layer that feeds it is the same one measured here.
+- **Mean Recall@10 on the 10 public traces: 0.69** with the LLM policy (Groq
+  `llama-3.3-70b`, hybrid retrieval); **0.61** in the no-LLM deterministic floor.
 - 32 unit/integration tests (schema, tolerant parsing, safety, grounding,
   turn-cap commit, LLM-path via a scripted fake LLM, LLM-failure fallback).
 
-**What didn't work / iterations.** (1) Returning a fixed top-5 in the fallback
-capped recall at ~0.37; since Recall@K has no precision penalty, widening to
-top-8 candidates plus the OPQ32r/Verify staples lifted the floor to ~0.61.
-(2) Pure lexical retrieval missed semantic queries (leadership→OPQ); adding the
-embedding blend fixed C1/C3. (3) An early over-eager legal regex flagged benign
-"compliance" queries — I tightened it to require an obligation/permission verb,
-verified by a test asserting legitimate queries are never flagged.
+**What didn't work / iterations (measured).** (1) The raw LLM policy actually
+*underperformed* the deterministic floor (0.42 vs 0.61): it curated tight 3–5
+item lists and, being stateless, sometimes returned nothing on a confirmation
+turn. Fixes, each measured: embed the shortlist in every reply so history carries
+it forward, carry it forward on confirmation, and add house-default staples →
+0.57. (2) Capping the shortlist at 8 left recall on the table; since Recall@K has
+no precision penalty, backfilling to the full 10 with grounded, on-topic,
+non-removed items → 0.67. (3) A coarse "any removal disables backfill" flag
+wrongly suppressed Verify G+ in C9 (user said "drop REST", not "drop Verify"); a
+per-item removed-terms filter honors edits precisely → 0.69 and keeps the
+edit-probe green. (4) Doubling the last user turn in the retrieval query added
+noise when that turn was a confirmation; dropping confirmation-only turns from
+the query helped refinement traces. (5) Pure lexical retrieval missed semantic
+queries (leadership→OPQ); the embedding blend fixed C1/C3. (6) An over-eager
+legal regex flagged benign "compliance" queries — tightened to require an
+obligation verb, with a test asserting legitimate queries are never flagged.
 
 ## Reliability / edge cases
 `/chat` always returns a valid `ChatResponse` (200) — agent, request handler,

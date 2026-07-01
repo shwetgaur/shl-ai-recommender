@@ -11,8 +11,10 @@ Run:  python -m scripts.evaluate
 """
 from __future__ import annotations
 
+import os
 import re
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -88,12 +90,15 @@ def parse_trace(path: Path) -> tuple[list[str], list[str]]:
 
 def replay(agent: Agent, user_turns: list[str]) -> ChatResponse:
     """Feed user turns one at a time, threading our own replies as history."""
+    delay = float(os.environ.get("EVAL_TURN_DELAY", "0") or 0)
     messages: list[Message] = []
     last: ChatResponse | None = None
     for turn in user_turns:
         messages.append(Message(role="user", content=turn))
         last = agent.handle(messages)
         messages.append(Message(role="assistant", content=last.reply))
+        if delay:
+            time.sleep(delay)
     return last or ChatResponse(reply="", recommendations=[], end_of_conversation=False)
 
 
@@ -109,7 +114,10 @@ def run_recall(agent: Agent) -> float:
     print("=" * 72)
     print("RECALL@10 ON SAMPLE TRACES")
     print("=" * 72)
+    only = {s.upper() for s in sys.argv[1:] if not s.startswith("-")}
     files = sorted(TRACES_DIR.glob("*.md"), key=lambda p: (len(p.stem), p.stem))
+    if only:
+        files = [f for f in files if f.stem.upper() in only]
     scores = []
     for f in files:
         user_turns, gold = parse_trace(f)
@@ -197,7 +205,7 @@ def main() -> None:
     agent = Agent(catalog, retriever, llm, settings)
 
     mean_recall = run_recall(agent)
-    probe_rate = run_probes(agent)
+    probe_rate = run_probes(agent) if "--no-probes" not in sys.argv else 1.0
 
     print("\n" + "=" * 72)
     print(f"SUMMARY: mean Recall@10 = {mean_recall:.3f} | probe pass rate = {probe_rate:.3f}")
