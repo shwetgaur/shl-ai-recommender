@@ -27,7 +27,9 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.0-flash"
     groq_api_key: str = ""
-    groq_model: str = "llama-3.3-70b-versatile"
+    # llama-4-scout gives 30K TPM on Groq's free tier (vs 12K for llama-3.3-70b),
+    # which comfortably fits a full 8-turn conversation without rate-limiting.
+    groq_model: str = "meta-llama/llama-4-scout-17b-16e-instruct"
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
     openai_model: str = "gpt-4o-mini"
@@ -39,7 +41,7 @@ class Settings(BaseSettings):
     retrieval_top_k: int = 40
     # How many retrieved candidates are shown to the LLM per turn. Lower = fewer
     # tokens (useful on token-per-minute limited free tiers).
-    llm_candidate_limit: int = 24
+    llm_candidate_limit: int = 12
 
     # Agent behavior
     max_turns: int = 8

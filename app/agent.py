@@ -431,9 +431,12 @@ class Agent:
         lines = []
         for a in candidates[:limit]:
             b = a.brief()
+            desc = (b["description"] or "").strip()
+            if len(desc) > 240:
+                desc = desc[:240].rsplit(" ", 1)[0] + "..."
             lines.append(
                 f"- id={b['id']} | {b['name']} | type={b['test_type'] or '-'} | "
                 f"keys={b['keys']} | duration={b['duration']} | levels={b['job_levels']} | "
-                f"languages={b['languages']}\n    desc: {b['description']}\n    url: {b['url']}"
+                f"languages={b['languages']}\n    desc: {desc}\n    url: {b['url']}"
             )
         return "\n".join(lines) if lines else "(no candidates)"
