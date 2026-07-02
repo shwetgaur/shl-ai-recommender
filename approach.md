@@ -10,7 +10,8 @@ optimized for the scoring surface: hard evals (schema, catalog-only, turn cap),
 Recall@10 on final shortlists, and behavior probes.
 
 ## Architecture and stack
-FastAPI + Pydantic for a strict, self-documenting contract. The request handler
+FastAPI + Pydantic for a strict, self-documenting contract, deployed as a Docker
+Space on Hugging Face (Groq `llama-4-scout` via secret). The request handler
 is a thin wrapper around a stateless `Agent`. Three deliberate layers give
 robustness:
 
@@ -55,20 +56,31 @@ recommend on a vague opener, re-derive on edits) and **house-composition
 guidance** distilled from the traces: good batteries layer knowledge + cognitive
 + personality, and OPQ32r / Verify G+ are common defaults unless the user opts
 out. Each turn the user prompt carries the conversation, a compact candidate
-block (ID, name, type, keys, duration, levels, languages, description, URL), and
-a turn hint (vague-opener vs must-commit-now). Output is a fixed JSON object,
-parsed with a resilient brace-matching extractor.
+block (top 12 by retrieval, truncated descriptions to stay within Groq free-tier
+TPM limits), and a turn hint (vague-opener vs must-commit-now). Output is a fixed
+JSON object, parsed with a resilient brace-matching extractor.
 
 ## Evaluation
-`scripts/evaluate.py` parses the 10 sample traces, extracts the gold final
-shortlist from each trace's last table, replays the user turns through the agent,
-and computes Recall@10, plus seven behavior probes. Measured results:
+Two harnesses mirror the assignment's scoring surface:
 
-- **Behavior probes: 7/7 pass** in every mode (incl. no-LLM).
-- **Mean Recall@10 on the 10 public traces: 0.69** with the LLM policy (Groq
-  `llama-3.3-70b`, hybrid retrieval); **0.61** in the no-LLM deterministic floor.
+- `scripts/evaluate.py` — scripted replay of the 10 public traces + seven
+  behavior probes (fast iteration).
+- `scripts/simulate.py` — closer to SHL's grader: an LLM role-plays the hiring
+  manager from each trace's facts and drives a **dynamic** multi-turn conversation
+  against the live `POST /chat` over HTTP, then scores hard evals, Recall@10,
+  and probes.
+
+Measured on the **deployed endpoint** (simulated-user harness, hybrid retrieval,
+Groq `meta-llama/llama-4-scout-17b-16e-instruct`):
+
+- **Hard evals: pass** (schema, catalog-only, 8-turn cap).
+- **Behavior probes: 7/7 pass.**
+- **Mean Recall@10: 0.733** on the 10 public traces; **0.61** no-LLM floor.
 - 32 unit/integration tests (schema, tolerant parsing, safety, grounding,
   turn-cap commit, LLM-path via a scripted fake LLM, LLM-failure fallback).
+
+I stopped tuning at 0.73 to avoid overfitting the public traces; holdout traces
+are graded separately.
 
 **What didn't work / iterations (measured).** (1) The raw LLM policy actually
 *underperformed* the deterministic floor (0.42 vs 0.61): it curated tight 3–5
@@ -86,6 +98,9 @@ the query helped refinement traces. (5) Pure lexical retrieval missed semantic
 queries (leadership→OPQ); the embedding blend fixed C1/C3. (6) An over-eager
 legal regex flagged benign "compliance" queries — tightened to require an
 obligation verb, with a test asserting legitimate queries are never flagged.
+(7) `llama-3.3-70b` on Groq's free tier (12K TPM) rate-limited full
+conversations; switching to `llama-4-scout` (30K TPM) and trimming candidates
+per turn restored the LLM path on the deployed Space → 0.73.
 
 ## Reliability / edge cases
 `/chat` always returns a valid `ChatResponse` (200) — agent, request handler,
