@@ -10,6 +10,14 @@ pinned: false
 
 # SHL Conversational Assessment Recommender
 
+**Live API:** https://shwetgaur-shl-recommender.hf.space
+
+| | |
+|---|---|
+| Health check | https://shwetgaur-shl-recommender.hf.space/health |
+| Chat (`POST`) | https://shwetgaur-shl-recommender.hf.space/chat |
+| Try it in browser | https://shwetgaur-shl-recommender.hf.space/docs |
+
 A conversational agent that takes a hiring manager from a vague intent
 ("I'm hiring a Java developer") to a **grounded shortlist of SHL assessments**
 through dialogue. It clarifies when the request is vague, recommends 1–10
