@@ -10,14 +10,16 @@ pinned: false
 
 # SHL Conversational Assessment Recommender
 
-**Live API:** https://shwetgaur-shl-recommender.hf.space
+**Live API:** https://shl-recommender-xffs.onrender.com
 
 | | |
 |---|---|
-| Health check | https://shwetgaur-shl-recommender.hf.space/health |
-| **Web UI** | https://shwetgaur-shl-recommender.hf.space/ |
-| Chat API (`POST`) | https://shwetgaur-shl-recommender.hf.space/chat |
-| API docs | https://shwetgaur-shl-recommender.hf.space/docs |
+| Health check | https://shl-recommender-xffs.onrender.com/health |
+| **Web UI** | https://shl-recommender-xffs.onrender.com/ |
+| Chat API (`POST`) | https://shl-recommender-xffs.onrender.com/chat |
+| API docs | https://shl-recommender-xffs.onrender.com/docs |
+
+HF Space backup: https://shwetgaur-shl-recommender.hf.space
 
 A conversational agent that takes a hiring manager from a vague intent
 ("I'm hiring a Java developer") to a **grounded shortlist of SHL assessments**
