@@ -2,9 +2,8 @@ name: Render keep-alive
 
 on:
   schedule:
-    # Daily ping — Render free tier only sleeps instances (cold start OK); this
-    # keeps the service visibly active without burning GitHub Actions minutes.
-    - cron: "0 6 * * *"
+    # Render free tier sleeps after ~15 min idle; ping every 14 min (public repo = unlimited Actions).
+    - cron: "*/14 * * * *"
   workflow_dispatch:
 
 jobs:
