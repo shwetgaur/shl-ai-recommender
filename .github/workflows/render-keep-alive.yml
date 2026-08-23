@@ -1,0 +1,17 @@
+name: Render keep-alive
+
+on:
+  schedule:
+    # Render free tier sleeps after ~15 min idle; ping every 14 min to stay warm.
+    - cron: "*/14 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping SHL recommender health
+        run: |
+          curl -fsS --retry 3 --retry-delay 15 --max-time 120 \
+            "https://shl-conversational-assessment-recommender.onrender.com/health"
+          echo "SHL recommender keep-alive OK"
