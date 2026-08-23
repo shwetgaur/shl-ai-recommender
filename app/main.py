@@ -4,9 +4,12 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from .agent import Agent
 from .catalog import load_catalog
@@ -73,14 +76,34 @@ def health() -> HealthResponse:
     return HealthResponse(status="ok")
 
 
+STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+
+
 @app.get("/")
-def root() -> dict:
+def root():
+    index = STATIC_DIR / "index.html"
+    if index.exists():
+        return FileResponse(index)
     agent = _STATE.get("agent")
     return {
         "service": "SHL Conversational Assessment Recommender",
         "status": "ok" if agent else "starting",
         "endpoints": {"health": "GET /health", "chat": "POST /chat"},
     }
+
+
+@app.get("/api")
+def api_info() -> dict:
+    agent = _STATE.get("agent")
+    return {
+        "service": "SHL Conversational Assessment Recommender",
+        "status": "ok" if agent else "starting",
+        "endpoints": {"health": "GET /health", "chat": "POST /chat", "ui": "GET /"},
+    }
+
+
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 @app.post("/chat", response_model=ChatResponse)

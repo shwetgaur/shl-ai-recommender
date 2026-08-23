@@ -15,8 +15,9 @@ pinned: false
 | | |
 |---|---|
 | Health check | https://shwetgaur-shl-recommender.hf.space/health |
-| Chat (`POST`) | https://shwetgaur-shl-recommender.hf.space/chat |
-| Try it in browser | https://shwetgaur-shl-recommender.hf.space/docs |
+| **Web UI** | https://shwetgaur-shl-recommender.hf.space/ |
+| Chat API (`POST`) | https://shwetgaur-shl-recommender.hf.space/chat |
+| API docs | https://shwetgaur-shl-recommender.hf.space/docs |
 
 A conversational agent that takes a hiring manager from a vague intent
 ("I'm hiring a Java developer") to a **grounded shortlist of SHL assessments**
