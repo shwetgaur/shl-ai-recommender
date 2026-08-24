@@ -83,7 +83,10 @@ STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 def root():
     index = STATIC_DIR / "index.html"
     if index.exists():
-        return FileResponse(index)
+        return FileResponse(
+            index,
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
     agent = _STATE.get("agent")
     return {
         "service": "SHL Conversational Assessment Recommender",
