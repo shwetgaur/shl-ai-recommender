@@ -79,7 +79,7 @@ def health() -> HealthResponse:
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def root():
     index = STATIC_DIR / "index.html"
     if index.exists():
