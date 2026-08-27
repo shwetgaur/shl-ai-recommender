@@ -1,9 +1,9 @@
 name: Render keep-alive
 
+# Scheduled pings moved to shwetgaur-portfolio (one workflow pings all Render apps).
+# Use workflow_dispatch here for a manual ping of this service only.
+
 on:
-  schedule:
-    # Render free tier sleeps after ~15 min idle; ping every 14 min (public repo = unlimited Actions).
-    - cron: "*/14 * * * *"
   workflow_dispatch:
 
 jobs:
@@ -12,6 +12,6 @@ jobs:
     steps:
       - name: Ping SHL recommender health
         run: |
-          curl -fsS --retry 3 --retry-delay 15 --max-time 120 \
+          curl -fsS --connect-timeout 15 --max-time 180 --retry 2 --retry-delay 25 \
             "https://shl-recommender-xffs.onrender.com/health"
           echo "SHL recommender keep-alive OK"
